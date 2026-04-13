@@ -8,7 +8,8 @@ jobs:
   notify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repo
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -18,21 +19,26 @@ jobs:
           CURRENT="${{ github.event.release.tag_name }}"
           PREVIOUS=$(git tag --sort=-creatordate | grep -A1 "$CURRENT" | tail -n1)
 
-          # commits summary
-          COMMITS=$(git log "$PREVIOUS..$CURRENT" --pretty=format:"- %s" | head -n 4)
+          # Commit summary (clean)
+          COMMITS=$(git log "$PREVIOUS..$CURRENT" --pretty=format:"- %s" | head -n 3)
 
-          # changed files grouped by folder
+          # Get affected folders (ignore useless ones)
           FILES=$(git diff --name-only "$PREVIOUS" "$CURRENT" \
+            | grep -vE '^\.github|^\.vscode' \
             | cut -d/ -f1 \
             | sort | uniq \
             | head -n 5)
 
           FILE_LIST=$(echo "$FILES" | sed 's/^/• /')
 
-          OUTPUT="$COMMITS\n\n📂 Areas affected:\n$FILE_LIST"
-
+          # Build output (REAL newlines, no \n)
           if [ -z "$COMMITS" ]; then
-            OUTPUT="🛠 Minor internal changes"
+            OUTPUT="🛠 Minor internal updates"
+          else
+            OUTPUT="$COMMITS
+
+📂 Areas affected:
+$FILE_LIST"
           fi
 
           echo "text<<EOF" >> $GITHUB_OUTPUT
@@ -48,7 +54,9 @@ jobs:
             --arg body "${{ steps.log.outputs.text }}" \
             '{
               content:
-              "🚀 **\($name)**\n📦 Version: \($tag)\n\n\($body)\n\n🔗 \($url)"
+              "🚀 **\($name)**\n📦 Version: \($tag)\n\n" +
+              $body +
+              "\n\n🔗 " + $url
             }' \
           | curl -H "Content-Type: application/json" \
                  -d @- \
