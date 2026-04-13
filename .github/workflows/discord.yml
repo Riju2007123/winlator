@@ -8,8 +8,48 @@ jobs:
   notify:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        id: log
+        run: |
+          CURRENT="${{ github.event.release.tag_name }}"
+          PREVIOUS=$(git tag --sort=-creatordate | grep -A1 "$CURRENT" | tail -n1)
+
+          # commits summary
+          COMMITS=$(git log "$PREVIOUS..$CURRENT" --pretty=format:"- %s" | head -n 4)
+
+          # changed files grouped by folder
+          FILES=$(git diff --name-only "$PREVIOUS" "$CURRENT" \
+            | cut -d/ -f1 \
+            | sort | uniq \
+            | head -n 5)
+
+          FILE_LIST=$(echo "$FILES" | sed 's/^/• /')
+
+          OUTPUT="$COMMITS\n\n📂 Areas affected:\n$FILE_LIST"
+
+          if [ -z "$COMMITS" ]; then
+            OUTPUT="🛠 Minor internal changes"
+          fi
+
+          echo "text<<EOF" >> $GITHUB_OUTPUT
+          echo "$OUTPUT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Send to Discord
         run: |
-          curl -H "Content-Type: application/json" \
-          -d "{\"content\": \"🚀 **${{ github.event.release.name }}**\n📦 Version: ${{ github.event.release.tag_name }}\n\n🔗 ${{ github.event.release.html_url }}\"}" \
-          "${{ secrets.DISCORD_WEBHOOK }}"
+          jq -n \
+            --arg name "${{ github.event.release.name }}" \
+            --arg tag "${{ github.event.release.tag_name }}" \
+            --arg url "${{ github.event.release.html_url }}" \
+            --arg body "${{ steps.log.outputs.text }}" \
+            '{
+              content:
+              "🚀 **\($name)**\n📦 Version: \($tag)\n\n\($body)\n\n🔗 \($url)"
+            }' \
+          | curl -H "Content-Type: application/json" \
+                 -d @- \
+                 "${{ secrets.DISCORD_WEBHOOK }}"
