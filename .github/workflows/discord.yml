@@ -17,28 +17,40 @@ jobs:
         id: log
         run: |
           CURRENT="${{ github.event.release.tag_name }}"
-          PREVIOUS=$(git tag --sort=-creatordate | grep -A1 "$CURRENT" | tail -n1)
 
-          # Commit summary (clean)
-          COMMITS=$(git log "$PREVIOUS..$CURRENT" --pretty=format:"- %s" | head -n 3)
+          # Get previous tag safely
+          TAGS=($(git tag --sort=-creatordate))
+          PREVIOUS=""
 
-          # Get affected folders (ignore useless ones)
-          FILES=$(git diff --name-only "$PREVIOUS" "$CURRENT" \
-            | grep -vE '^\.github|^\.vscode' \
-            | cut -d/ -f1 \
-            | sort | uniq \
-            | head -n 5)
+          for ((i=0; i<${#TAGS[@]}; i++)); do
+            if [ "${TAGS[$i]}" = "$CURRENT" ]; then
+              PREVIOUS="${TAGS[$i+1]}"
+              break
+            fi
+          done
 
-          FILE_LIST=$(echo "$FILES" | sed 's/^/• /')
-
-          # Build output (REAL newlines, no \n)
-          if [ -z "$COMMITS" ]; then
-            OUTPUT="🛠 Minor internal updates"
+          # If no previous tag → first release
+          if [ -z "$PREVIOUS" ]; then
+            OUTPUT="🎉 Initial release"
           else
-            OUTPUT="$COMMITS
+            COMMITS=$(git log "$PREVIOUS..$CURRENT" --pretty=format:"- %s" | head -n 3)
+
+            FILES=$(git diff --name-only "$PREVIOUS" "$CURRENT" \
+              | grep -vE '^\.github|^\.vscode' \
+              | cut -d/ -f1 \
+              | sort | uniq \
+              | head -n 5)
+
+            FILE_LIST=$(echo "$FILES" | sed 's/^/• /')
+
+            if [ -z "$COMMITS" ]; then
+              OUTPUT="🛠 Minor internal updates"
+            else
+              OUTPUT="$COMMITS
 
 📂 Areas affected:
 $FILE_LIST"
+            fi
           fi
 
           echo "text<<EOF" >> $GITHUB_OUTPUT
